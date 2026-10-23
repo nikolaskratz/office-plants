@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@theme {
+  --color-leaf-50: #eef8f1;
+  --color-leaf-100: #d6eedd;
+  --color-leaf-300: #8fcfa3;
+  --color-leaf-500: #2f8f57;
+  --color-leaf-600: #1f6f43;
+  --color-leaf-700: #185937;
+  --color-leaf-900: #0d2f1d;
+}
+
+:root {
+  color-scheme: light dark;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply bg-stone-100 text-stone-900 antialiased dark:bg-stone-950 dark:text-stone-100;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding-top: env(safe-area-inset-top);
+  overscroll-behavior-y: none;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px; /* stops iOS from zooming into focused fields */
+}
