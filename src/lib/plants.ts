@@ -107,6 +107,16 @@ export async function snoozePlant(id: string, days: number): Promise<void> {
   if (error) throw error
 }
 
+export async function updateInterval(id: string, days: number): Promise<void> {
+  const { error } = await supabase.from('plants').update({ interval_days: days }).eq('id', id)
+  if (error) throw error
+}
+
+export async function addNote(plantId: string, note: string): Promise<void> {
+  const { error } = await supabase.from('care_events').insert({ plant_id: plantId, type: 'note', note })
+  if (error) throw error
+}
+
 export async function listEvents(plantId: string): Promise<CareEvent[]> {
   const { data, error } = await supabase
     .from('care_events')

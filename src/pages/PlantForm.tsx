@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { CameraIcon, MinusIcon, PlusIcon } from '../components/icons'
+import { CheckingNote, PlantCheckCard } from '../components/PlantCheckCard'
+import { CameraIcon, MinusIcon, PlusIcon, SparkleIcon } from '../components/icons'
 import { ErrorNote, PageHeader, Spinner, buttonPrimary, buttonSecondary, inputClass } from '../components/ui'
+import { checkPlantPhoto, type PlantCheck } from '../lib/ai'
 import { resizePhoto } from '../lib/image'
 import { createPlant, deletePlant, photoUrl, updatePlant, waterPlants, type Plant } from '../lib/plants'
 import { usePlants } from '../lib/store'
@@ -29,6 +31,8 @@ function Form({ plant }: { plant?: Plant }) {
   const [wateredToday, setWateredToday] = useState(true)
   const [photo, setPhoto] = useState<Blob | null>(null)
   const [preview, setPreview] = useState<string | undefined>(photoUrl(plant?.photo_path ?? null))
+  const [check, setCheck] = useState<PlantCheck | null>(null)
+  const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -40,8 +44,29 @@ function Form({ plant }: { plant?: Plant }) {
       const blob = await resizePhoto(file)
       setPhoto(blob)
       setPreview(URL.createObjectURL(blob))
+      setCheck(null)
+      if (!plant) await identify(blob) // new plant: fill the form from the photo right away
     } catch (e) {
       setError(errorMessage(e))
+    }
+  }
+
+  async function identify(blob: Blob) {
+    setChecking(true)
+    setError(null)
+    try {
+      const result = await checkPlantPhoto(blob)
+      setCheck(result)
+      if (!result.is_plant) return
+      // Fill in what Claude saw; typed-in name and notes win, everything stays editable.
+      setSpecies(result.species)
+      setName((n) => n || result.common_name)
+      setIntervalDays(result.water_every_days)
+      setNotes((n) => n || `${result.light}. ${result.watering_tip}`)
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setChecking(false)
     }
   }
 
@@ -97,6 +122,7 @@ function Form({ plant }: { plant?: Plant }) {
             <span className="flex size-full flex-col items-center justify-center gap-2 text-leaf-600 dark:text-leaf-300">
               <CameraIcon className="size-10" />
               <span className="font-medium">Take or choose a photo</span>
+              {!plant && <span className="text-sm text-stone-500">The plant is recognised and filled in for you</span>}
             </span>
           )}
           {preview && (
@@ -106,6 +132,21 @@ function Form({ plant }: { plant?: Plant }) {
           )}
           <input type="file" accept="image/*" className="sr-only" onChange={(e) => pickPhoto(e.target.files?.[0])} />
         </label>
+
+        {checking ? (
+          <CheckingNote what="Identifying the plant…" />
+        ) : check ? (
+          <PlantCheckCard check={check}>
+            {check.is_plant && <p className="mt-3 text-xs text-stone-500">Filled in below. Change anything that's off.</p>}
+          </PlantCheckCard>
+        ) : (
+          plant &&
+          photo && (
+            <button type="button" onClick={() => identify(photo)} className={`${buttonSecondary} flex items-center justify-center gap-2`}>
+              <SparkleIcon className="size-5" /> Identify from this photo
+            </button>
+          )
+        )}
 
         <Field label="Name">
           <input
@@ -210,7 +251,7 @@ function Form({ plant }: { plant?: Plant }) {
         </Field>
 
         <ErrorNote message={error} />
-        <button type="submit" disabled={busy} className={buttonPrimary}>
+        <button type="submit" disabled={busy || checking} className={buttonPrimary}>
           {busy ? 'Saving…' : plant ? 'Save changes' : 'Add plant'}
         </button>
         {plant && (

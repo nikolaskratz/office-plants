@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { DropIcon } from '../components/icons'
+import { CheckingNote, PlantCheckCard } from '../components/PlantCheckCard'
+import { DropIcon, SparkleIcon } from '../components/icons'
 import { DuePill, ErrorNote, PageHeader, PlantPhoto, Spinner, buttonPrimary, buttonSecondary } from '../components/ui'
+import { checkPlantPhoto, healthLabels, type PlantCheck } from '../lib/ai'
+import { resizePhoto } from '../lib/image'
 import {
+  addNote,
   daysUntilDue,
   formatDay,
   listEvents,
   nextDue,
   snoozePlant,
+  updateInterval,
+  updatePlant,
   waterPlants,
   type CareEvent,
 } from '../lib/plants'
@@ -26,6 +32,8 @@ export default function PlantDetail() {
   const { plants, loading, reload } = usePlants()
   const plant = plants.find((p) => p.id === id)
   const [events, setEvents] = useState<CareEvent[]>([])
+  const [check, setCheck] = useState<{ result: PlantCheck; photo: Blob } | null>(null)
+  const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -47,7 +55,28 @@ export default function PlantDetail() {
     }
   }
 
+  async function healthCheck(file: File | undefined) {
+    if (!file || !plant) return
+    setChecking(true)
+    setCheck(null)
+    setError(null)
+    try {
+      const photo = await resizePhoto(file)
+      const result = await checkPlantPhoto(photo, plant)
+      setCheck({ result, photo })
+      if (result.is_plant) {
+        await addNote(plant.id, `${healthLabels[result.health]}: ${result.health_summary}`)
+        await loadEvents()
+      }
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setChecking(false)
+    }
+  }
+
   const days = daysUntilDue(plant)
+  const suggested = check?.result.is_plant ? check.result.water_every_days : null
 
   return (
     <>
@@ -92,6 +121,44 @@ export default function PlantDetail() {
           </div>
         </div>
 
+        <div className="mt-4">
+          {checking ? (
+            <CheckingNote what="Checking the photo…" />
+          ) : check ? (
+            <PlantCheckCard check={check.result}>
+              {check.result.is_plant && (
+                <div className="mt-4 flex flex-col gap-2">
+                  {suggested !== null && suggested !== plant.interval_days && (
+                    <button
+                      onClick={() => run(() => updateInterval(plant.id, suggested))}
+                      disabled={busy}
+                      className={buttonSecondary}
+                    >
+                      Water every {suggested} days instead of {plant.interval_days}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => run(async () => {
+                      const { name, species, location, interval_days, notes } = plant
+                      await updatePlant(plant, { name, species, location, interval_days, notes }, check.photo)
+                      setCheck(null)
+                    })}
+                    disabled={busy}
+                    className={buttonSecondary}
+                  >
+                    Use as plant photo
+                  </button>
+                </div>
+              )}
+            </PlantCheckCard>
+          ) : (
+            <label className={`${buttonSecondary} flex cursor-pointer items-center justify-center gap-2`}>
+              <SparkleIcon className="size-5" /> Health check from a photo
+              <input type="file" accept="image/*" className="sr-only" onChange={(e) => healthCheck(e.target.files?.[0])} />
+            </label>
+          )}
+        </div>
+
         <ErrorNote message={error} />
 
         {plant.notes && (
@@ -108,12 +175,12 @@ export default function PlantDetail() {
           ) : (
             <ul className="divide-y divide-stone-200 dark:divide-stone-800">
               {events.map((ev) => (
-                <li key={ev.id} className="flex justify-between py-2 text-sm">
+                <li key={ev.id} className="flex justify-between gap-3 py-2 text-sm">
                   <span>
                     {eventLabels[ev.type]}
                     {ev.note && <span className="text-stone-500"> · {ev.note}</span>}
                   </span>
-                  <span className="text-stone-500">{formatDay(ev.at)}</span>
+                  <span className="shrink-0 text-stone-500">{formatDay(ev.at)}</span>
                 </li>
               ))}
             </ul>

@@ -31,7 +31,7 @@ export default function Overview() {
         <Spinner />
       ) : plants.length === 0 ? (
         <div className="px-4 pt-8 text-center">
-          <p className="mb-6 text-stone-500">Add your first plant with a photo and a watering interval.</p>
+          <p className="mb-6 text-stone-500">Take a photo of your first plant. The app recognises it and suggests how often to water it.</p>
           <Link to="/plants/new" className={`${buttonPrimary} inline-flex items-center gap-2`}>
             <PlusIcon className="size-5" /> Add plant
           </Link>

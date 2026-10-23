@@ -12,6 +12,7 @@ schedule, water round, photo per plant. Runs on iPhone and Android via
 - Schema: [supabase/migrations](supabase/migrations)
 - Edge Function [send-reminders](supabase/functions/send-reminders/index.ts) +
   pg_cron job `send-reminders` (hourly) for the daily push
+- Edge Function [plant-ai](supabase/functions/plant-ai/index.ts): Claude photo checks
 
 ## Develop
 
@@ -40,9 +41,24 @@ GitHub Pages via `.github/workflows/deploy.yml`.
 - iPhone: push only works from the home-screen app (iOS 16.4+).
 - Deploy the function with `verify_jwt = false` (it checks the secret / JWT itself).
 
+## Plant AI (Claude)
+
+- New plant: picking a photo sends it to `plant-ai`, which asks Claude (Opus 5.5,
+  structured output) for species, watering interval, light, a watering tip and a
+  health check. The form is filled in; everything stays editable.
+- Plant page → "Health check from a photo": same call with the plant's current
+  schedule as context. Logs a note in the history and offers to adopt the suggested
+  interval or the new photo.
+- Needs the `ANTHROPIC_API_KEY` secret (Dashboard → Edge Functions → Secrets).
+  Each call is logged in `ai_checks` (tokens included); 30 checks per user per day.
+- Roughly 3 cents and 10 seconds per photo.
+- Try the prompt locally: [claude.ts](supabase/functions/plant-ai/claude.ts) exports
+  `checkPlant(apiKey, base64Jpeg, plant?)`.
+- Deploy with `verify_jwt = false` (it checks the JWT itself).
+
 ## Roadmap
 
 1. ~~MVP: plants, photos, overview, water round~~
 2. ~~Reminders: web push + pg_cron daily digest~~
-3. AI: identify species + suggested interval from a photo, health check
+3. ~~AI: identify species + suggested interval from a photo, health check~~
 4. Later: adaptive intervals, colleagues (spaces), QR stickers on pots
