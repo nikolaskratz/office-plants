@@ -6,6 +6,36 @@ import * as z from 'npm:zod@4.6.7/v4'
 
 export { Anthropic }
 
+const MODEL = 'claude-opus-5-5'
+const MAX_TOKENS = 4000 // a check uses ~600 output tokens incl. thinking; this caps the worst case
+
+// USD per million tokens [input, output]. A fallback model may answer if Opus declines;
+// anything not listed is priced like the most expensive model, so the budget errs on the safe side.
+const PRICES: Record<string, [number, number]> = {
+  'claude-opus-5-5': [4, 20],
+  'claude-opus-5': [5, 25],
+  'claude-opus-4-8': [5, 25],
+  'claude-sonnet-5-5': [2, 10],
+}
+const PRICE_UNKNOWN: [number, number] = [10, 50]
+
+/** Most a single check can cost: a full-size photo (~8k input tokens with the prompt) plus a full answer. */
+export const MAX_CHECK_COST_USD = (8000 * PRICES[MODEL][0] + MAX_TOKENS * PRICES[MODEL][1]) / 1e6
+
+type Usage = Anthropic.Beta.Messages.BetaUsage
+
+function cost(model: string, input: number, output: number): number {
+  const [inPrice, outPrice] = PRICES[model] ?? PRICE_UNKNOWN
+  return (input * inPrice + output * outPrice) / 1e6
+}
+
+/** What the request cost: per attempt when a fallback model also ran, else from the totals. */
+export function costUsd(usage: Usage, model: string): number {
+  const attempts = (usage.iterations ?? []).filter((it) => it.type === 'message' || it.type === 'fallback_message')
+  if (!attempts.length) return cost(model, usage.input_tokens, usage.output_tokens)
+  return attempts.reduce((sum, it) => sum + cost(it.model ?? MODEL, it.input_tokens, it.output_tokens), 0)
+}
+
 const Result = z.object({
   is_plant: z.boolean().describe('false if the photo does not show a plant'),
   common_name: z.string().describe('Everyday English name, e.g. "Swiss cheese plant"'),
@@ -46,18 +76,18 @@ function prompt(plant: PlantContext | undefined, today: string): string {
     plant.species && `Species recorded: ${plant.species}`,
     plant.interval_days && `Current schedule: water every ${plant.interval_days} days`,
     `Last watered: ${plant.last_watered_at ? plant.last_watered_at.slice(0, 10) : 'unknown'}`,
-    plant.notes && `Owner's notes: ${plant.notes}`,
+    plant.notes && `Owner's notes: ${plant.notes.slice(0, 500)}`,
   ].filter(Boolean)
   return `Today is ${today}. Health check of a plant that's already in the app.\n${facts.join('\n')}\n\n\
 Identify it again from the photo, say whether the watering interval fits, and how healthy it looks.`
 }
 
-/** Returns null when Claude couldn't give a usable answer (refusal or unparseable output). */
+/** `result` is null when Claude couldn't give a usable answer (refusal or unparseable output). */
 export async function checkPlant(apiKey: string, image: string, plant?: PlantContext) {
   const client = new Anthropic({ apiKey })
   const response = await client.beta.messages.parse({
-    model: 'claude-opus-5-5',
-    max_tokens: 16000,
+    model: MODEL,
+    max_tokens: MAX_TOKENS,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     output_config: { effort: 'medium', format: betaZodOutputFormat(Result) },
@@ -72,12 +102,13 @@ export async function checkPlant(apiKey: string, image: string, plant?: PlantCon
       },
     ],
   })
+  const spent = { model: response.model, usage: response.usage, costUsd: costUsd(response.usage, response.model) }
   if (response.stop_reason === 'refusal' || !response.parsed_output) {
     console.error('plant-ai: no result', response.stop_reason, response.stop_details?.category)
-    return null
+    return { result: null, ...spent }
   }
   const result = response.parsed_output
   result.water_every_days = Math.min(90, Math.max(1, Math.round(result.water_every_days)))
   result.actions = result.actions.slice(0, 3)
-  return { result, model: response.model, usage: response.usage }
+  return { result, ...spent }
 }

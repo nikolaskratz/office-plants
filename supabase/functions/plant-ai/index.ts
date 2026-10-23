@@ -2,14 +2,18 @@
 //
 // Called by the app with the user's JWT and {image: <base64 JPEG>, plant?: {...}}.
 // `plant` is set for a health check of a plant that's already in the app, so Claude
-// knows its current schedule. Each call is logged in ai_checks (also used for the daily cap).
+// knows its current schedule. Each call is logged in ai_checks with its cost, which backs the
+// daily budget: a check only runs if its worst case still fits into today's budget. That worst
+// case is reserved up front (ai_reserve) and replaced with the real cost afterwards.
 //
 // Needs the ANTHROPIC_API_KEY secret (Dashboard → Edge Functions → Secrets).
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { Anthropic, checkPlant, type PlantContext } from './claude.ts'
+import { Anthropic, MAX_CHECK_COST_USD, checkPlant, type PlantContext } from './claude.ts'
 
-const DAILY_LIMIT = 30
+const DAILY_BUDGET_EUR = 0.5
+const USD_PER_EUR = 1.1 // a bit below the real rate, so the euro budget is never exceeded
+const DAILY_BUDGET_USD = DAILY_BUDGET_EUR * USD_PER_EUR
 const MAX_IMAGE_BYTES = 4_000_000
 
 const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
@@ -19,15 +23,21 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-async function usedToday(userId: string): Promise<number> {
-  const since = new Date(Date.now() - 86_400_000).toISOString()
-  const { count, error } = await supabase
-    .from('ai_checks')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .gte('created_at', since)
+/** ai_checks id of the reservation, or null when today's budget is used up. */
+async function reserve(userId: string, kind: 'identify' | 'health'): Promise<number | null> {
+  const { data, error } = await supabase.rpc('ai_reserve', {
+    uid: userId,
+    check_kind: kind,
+    max_cost: MAX_CHECK_COST_USD,
+    budget: DAILY_BUDGET_USD,
+  })
   if (error) throw error
-  return count ?? 0
+  return data
+}
+
+async function settle(checkId: number, fields: Record<string, unknown>) {
+  const { error } = await supabase.from('ai_checks').update(fields).eq('id', checkId)
+  if (error) console.error('plant-ai: could not log check', error.message)
 }
 
 const json = (body: unknown, status = 200) =>
@@ -45,22 +55,26 @@ Deno.serve(async (req) => {
 
     const { image, plant } = (await req.json()) as { image?: string; plant?: PlantContext }
     if (!image || image.length > (MAX_IMAGE_BYTES * 4) / 3) return json({ error: 'Photo missing or too large.' }, 400)
-    if ((await usedToday(data.user.id)) >= DAILY_LIMIT) {
-      return json({ error: `That's ${DAILY_LIMIT} photo checks today. Try again tomorrow.` }, 429)
+    const checkId = await reserve(data.user.id, plant ? 'health' : 'identify')
+    if (checkId === null) return json({ error: "That's today's photo checks used up. Try again tomorrow." }, 429)
+
+    let checked
+    try {
+      checked = await checkPlant(apiKey, image, plant)
+    } catch (e) {
+      // An API error means no answer was generated, so nothing was billed.
+      if (e instanceof Anthropic.APIError) await settle(checkId, { cost_usd: 0 })
+      throw e
     }
-
-    const checked = await checkPlant(apiKey, image, plant)
-    if (!checked) return json({ error: "Couldn't read this photo. Try another one." }, 502)
-    const { result, model, usage } = checked
-
-    await supabase.from('ai_checks').insert({
-      user_id: data.user.id,
-      kind: plant ? 'health' : 'identify',
+    const { result, model, usage, costUsd } = checked
+    await settle(checkId, {
       result,
       model,
       input_tokens: usage.input_tokens,
       output_tokens: usage.output_tokens,
+      cost_usd: costUsd,
     })
+    if (!result) return json({ error: "Couldn't read this photo. Try another one." }, 502)
     return json(result)
   } catch (e) {
     if (e instanceof Anthropic.RateLimitError) return json({ error: 'Plant AI is busy. Try again in a minute.' }, 429)

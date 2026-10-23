@@ -50,8 +50,13 @@ GitHub Pages via `.github/workflows/deploy.yml`.
   schedule as context. Logs a note in the history and offers to adopt the suggested
   interval or the new photo.
 - Needs the `ANTHROPIC_API_KEY` secret (Dashboard → Edge Functions → Secrets).
-  Each call is logged in `ai_checks` (tokens included); 30 checks per user per day.
-- Roughly 3 cents and 10 seconds per photo.
+- Budget: at most €0.50 per user per day (Berlin calendar day). Every call is logged in
+  `ai_checks` with tokens and cost in USD (from the token counts and list prices in
+  [claude.ts](supabase/functions/plant-ai/claude.ts)). Before calling Claude, `ai_reserve()`
+  books the worst case (max_tokens 4000, about $0.11) under a per-user lock and refuses
+  if it wouldn't fit; afterwards the row gets the real cost. The euro limit is converted at
+  1.10 $/€, slightly below the real rate, so it errs on the safe side.
+- Roughly 2–3 cents and 10 seconds per photo, so about 16 checks a day per user.
 - Try the prompt locally: [claude.ts](supabase/functions/plant-ai/claude.ts) exports
   `checkPlant(apiKey, base64Jpeg, plant?)`.
 - Deploy with `verify_jwt = false` (it checks the JWT itself).
