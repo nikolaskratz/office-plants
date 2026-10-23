@@ -4,12 +4,14 @@ import { HashRouter, NavLink, Outlet, Route, Routes } from 'react-router-dom'
 import { DropIcon, LeafIcon, PlusIcon } from './components/icons'
 import { Spinner } from './components/ui'
 import { daysUntilDue } from './lib/plants'
+import { setAppBadge } from './lib/push'
 import { PlantsProvider, usePlants } from './lib/store'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Overview from './pages/Overview'
 import PlantDetail from './pages/PlantDetail'
 import PlantForm from './pages/PlantForm'
+import Settings from './pages/Settings'
 import WaterRound from './pages/WaterRound'
 
 function useSession(): Session | null | undefined {
@@ -38,6 +40,7 @@ export default function App() {
             <Route path="plants/new" element={<PlantForm />} />
             <Route path="plants/:id" element={<PlantDetail />} />
             <Route path="plants/:id/edit" element={<PlantForm />} />
+            <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>
       </HashRouter>
@@ -57,7 +60,8 @@ function Layout() {
 function TabBar() {
   const { plants } = usePlants()
   const due = plants.filter((p) => daysUntilDue(p) <= 0).length
-  const tab = ({ isActive }: { isActive: boolean }) =>
+  useEffect(() => setAppBadge(due), [due])
+  const tab =({ isActive }: { isActive: boolean }) =>
     `relative flex flex-1 flex-col items-center gap-0.5 pt-2 pb-1 text-xs font-medium ${
       isActive ? 'text-leaf-600 dark:text-leaf-300' : 'text-stone-500'
     }`

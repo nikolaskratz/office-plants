@@ -11,7 +11,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
+      // Own service worker (src/sw.ts) so it can handle push + notification clicks.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
+      injectManifest: { globPatterns: ['**/*.{js,css,html,svg,png,ico}'] },
       includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon-180x180.png'],
       manifest: {
         name: 'Office Plants',

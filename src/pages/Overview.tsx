@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { PlusIcon } from '../components/icons'
+import { PlusIcon, SettingsIcon } from '../components/icons'
 import { DuePill, ErrorNote, PageHeader, PlantPhoto, Spinner, buttonPrimary } from '../components/ui'
 import { byDueDate, daysUntilDue } from '../lib/plants'
 import { usePlants } from '../lib/store'
@@ -11,7 +11,14 @@ export default function Overview() {
 
   return (
     <>
-      <PageHeader title="Plants" />
+      <PageHeader
+        title="Plants"
+        action={
+          <Link to="/settings" aria-label="Settings" className="-mr-2 rounded-full p-2 text-stone-500 active:bg-stone-200 dark:active:bg-stone-800">
+            <SettingsIcon />
+          </Link>
+        }
+      />
       <p className="-mt-2 px-4 pb-3 text-sm text-stone-500">
         {plants.length === 0
           ? 'Nothing here yet.'
